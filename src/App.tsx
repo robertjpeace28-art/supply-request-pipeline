@@ -1,403 +1,555 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "./supabaseClient";
 
-type Status =
-  | "Intake"
-  | "Under Review"
-  | "Scored"
-  | "Approved"
-  | "In Progress"
-  | "Blocked"
-  | "Done";
-
-type Team = "Portfolio" | "Marketing" | "Strategic Partnerships";
-
+type Status = "Submitted" | "Approved" | "In Progress" | "Completed" | "Rejected";
+type RequesterDept =
+  | "Portfolio Management"
+  | "Marketing"
+  | "Strategic Partnerships"
+  | "TUI Source Market";
 type RequestType =
-  | "Domestic Growth"
-  | "Venue Optimisation"
-  | "Product Expansion"
-  | "New Destination"
-  | "Campaign Support";
-
-type Objective =
-  | "Strategic Priority"
-  | "Revenue"
-  | "Partner Commitment"
-  | "Conversion";
-
-type Impact = "High" | "Medium" | "Low";
-type Urgency = "Critical" | "Soon" | "Normal";
-type ActiveView = "dashboard" | "submit" | "triage" | "board" | "backlog";
+  | "Destination Expansion"
+  | "Specific Product Expansion"
+  | "City Page Optimisation"
+  | "Venue Page Optimisation";
+type ReasonForRequest =
+  | "Strategic Partner Requirement"
+  | "Google Analytics Trend"
+  | "Unsuitable for Marketing Campaign in current state";
+type PriorityTier = "High" | "Medium" | "Low";
+type ActiveView = "submit" | "portfolio" | "supply";
 
 type RequestItem = {
   id: string;
-  title: string;
-  requester: string;
-  team: Team;
-  type: RequestType;
+  requesterName: string;
+  requesterDept: RequesterDept;
+  country: string;
   destination: string;
-  objective: Objective;
-  impact: Impact;
+  requestType: RequestType;
+  reasonForRequest: ReasonForRequest;
+  description: string;
   deadline: string;
-  urgency: Urgency;
-  strategicPriority: boolean;
-  domesticGrowth: boolean;
-  ownOffer: boolean;
-  conversionIssue: boolean;
-  partnerCommitment: boolean;
-  aligned: boolean;
-  alreadyInPipeline: boolean;
-  contentRequired: boolean;
-  supplyRequired: boolean;
-  notes: string;
   status: Status;
-  score: number;
+  priorityScore: number;
+  priorityTier: PriorityTier;
+  createdAt: string;
+  updatedAt: string;
+};
+
+type RequestRow = {
+  id: string;
+  requester_name: string;
+  requester_dept: string;
+  country: string;
+  destination: string;
+  request_type: string;
+  reason_for_request: string;
+  description: string | null;
+  deadline: string | null;
+  status: string;
+  priority_score: number;
+  priority_tier: string;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+type CommentItem = {
+  id: string;
+  requestId: string;
+  commentText: string;
+  commentAuthor: string;
+  commentAuthorRole: string;
   createdAt: string;
 };
 
-type SupabaseRequestRow = {
+type CommentRow = {
   id: string;
-  title: string;
-  requester: string;
-  team: string;
-  type: string;
-  destination: string;
-  objective: string;
-  impact: string;
-  deadline: string | null;
-  urgency: string;
-  strategicpriority: boolean;
-  domesticgrowth: boolean;
-  ownoffer: boolean;
-  conversionissue: boolean;
-  partnercommitment: boolean;
-  aligned: boolean;
-  alreadyinpipeline: boolean;
-  contentrequired: boolean;
-  supplyrequired: boolean;
-  notes: string | null;
-  status: string;
-  score: number;
-  createdat: string | null;
+  request_id: string;
+  comment_text: string;
+  comment_author: string;
+  comment_author_role: string;
+  created_at: string | null;
 };
 
-const STATUSES: Status[] = [
-  "Intake",
-  "Under Review",
-  "Scored",
-  "Approved",
-  "In Progress",
-  "Blocked",
-  "Done",
+type FormState = {
+  requesterName: string;
+  requesterDept: RequesterDept;
+  country: string;
+  destination: string;
+  requestType: RequestType;
+  reasonForRequest: ReasonForRequest;
+  description: string;
+  deadline: string;
+};
+
+type DestinationGroup = {
+  key: string;
+  country: string;
+  destination: string;
+  openTickets: number;
+  approvedCount: number;
+  inProgressCount: number;
+  completedCount: number;
+  totalVisibleRequests: number;
+  internalScore: number;
+  priorityTier: PriorityTier;
+  latestDeadline: string;
+  lastUpdated: string;
+};
+
+const REQUESTER_DEPTS: RequesterDept[] = [
+  "Portfolio Management",
+  "Marketing",
+  "Strategic Partnerships",
+  "TUI Source Market",
 ];
 
-type FormState = Omit<RequestItem, "id" | "status" | "score" | "createdAt">;
+const REQUEST_TYPES: RequestType[] = [
+  "Destination Expansion",
+  "Specific Product Expansion",
+  "City Page Optimisation",
+  "Venue Page Optimisation",
+];
+
+const REASONS: ReasonForRequest[] = [
+  "Strategic Partner Requirement",
+  "Google Analytics Trend",
+  "Unsuitable for Marketing Campaign in current state",
+];
+
+const PORTFOLIO_STATUSES: Status[] = ["Submitted", "Approved", "In Progress", "Completed", "Rejected"];
 
 const EMPTY_FORM: FormState = {
-  title: "",
-  requester: "",
-  team: "Portfolio",
-  type: "Domestic Growth",
+  requesterName: "",
+  requesterDept: "Portfolio Management",
+  country: "",
   destination: "",
-  objective: "Strategic Priority",
-  impact: "Medium",
+  requestType: "Destination Expansion",
+  reasonForRequest: "Strategic Partner Requirement",
+  description: "",
   deadline: "",
-  urgency: "Soon",
-  strategicPriority: true,
-  domesticGrowth: false,
-  ownOffer: false,
-  conversionIssue: false,
-  partnerCommitment: false,
-  aligned: true,
-  alreadyInPipeline: false,
-  contentRequired: true,
-  supplyRequired: true,
-  notes: "",
 };
 
-function computeScore(item: FormState): number {
-  let score = 0;
+const EMPTY_COMMENT = {
+  commentAuthor: "",
+  commentAuthorRole: "Supply",
+  commentText: "",
+};
 
-  if (item.strategicPriority || item.objective === "Strategic Priority") score += 10;
-  if (item.objective === "Revenue") score += 5;
-  if (item.objective === "Partner Commitment" || item.partnerCommitment) score += 5;
-  if (item.objective === "Conversion" || item.conversionIssue) score += 5;
-
-  if (item.impact === "High") score += 5;
-  if (item.impact === "Medium") score += 3;
-  if (item.impact === "Low") score += 1;
-
-  if (item.urgency === "Critical") score += 3;
-  if (item.urgency === "Soon") score += 2;
-
-  if (item.domesticGrowth) score += 2;
-  if (item.ownOffer) score += 2;
-
-  if (!item.aligned) score -= 5;
-  if (item.alreadyInPipeline) score -= 5;
-
-  return Math.max(score, 0);
+function reasonScore(reason: ReasonForRequest): number {
+  if (reason === "Strategic Partner Requirement") return 10;
+  if (reason === "Unsuitable for Marketing Campaign in current state") return 8;
+  return 7;
 }
 
-function laneForType(type: RequestType): string {
-  if (type === "Domestic Growth" || type === "Product Expansion") {
-    return "Strategic Growth";
-  }
-  if (type === "Venue Optimisation") {
-    return "Performance Optimisation";
-  }
-  return "Reactive / External";
+function requestTypeScore(type: RequestType): number {
+  if (type === "Destination Expansion") return 10;
+  if (type === "Specific Product Expansion") return 8;
+  if (type === "City Page Optimisation") return 6;
+  return 5;
 }
 
-function statusClass(status: Status): string {
-  return "status-pill " + status.toLowerCase().replace(/ /g, "-");
+function requesterDeptScore(dept: RequesterDept): number {
+  if (dept === "Strategic Partnerships") return 4;
+  if (dept === "Marketing") return 3;
+  if (dept === "TUI Source Market") return 3;
+  return 2;
 }
 
-function mapRowToRequest(row: SupabaseRequestRow): RequestItem {
+function deadlineScore(deadline: string): number {
+  if (!deadline) return 0;
+
+  const today = new Date();
+  const due = new Date(deadline);
+  const msPerDay = 1000 * 60 * 60 * 24;
+  const diffDays = Math.ceil((due.getTime() - today.getTime()) / msPerDay);
+
+  if (diffDays <= 7) return 8;
+  if (diffDays <= 21) return 5;
+  if (diffDays <= 45) return 2;
+  return 0;
+}
+
+function computePriorityScore(form: FormState): number {
+  return (
+    reasonScore(form.reasonForRequest) +
+    requestTypeScore(form.requestType) +
+    requesterDeptScore(form.requesterDept) +
+    deadlineScore(form.deadline)
+  );
+}
+
+function tierFromScore(score: number): PriorityTier {
+  if (score >= 20) return "High";
+  if (score >= 12) return "Medium";
+  return "Low";
+}
+
+function formatDate(dateValue: string): string {
+  if (!dateValue) return "—";
+  return new Date(dateValue).toLocaleDateString("en-GB");
+}
+
+function formatDateTime(dateValue: string): string {
+  if (!dateValue) return "—";
+  return new Date(dateValue).toLocaleString("en-GB");
+}
+
+function requestRowToItem(row: RequestRow): RequestItem {
   return {
     id: row.id,
-    title: row.title,
-    requester: row.requester,
-    team: row.team as Team,
-    type: row.type as RequestType,
+    requesterName: row.requester_name,
+    requesterDept: row.requester_dept as RequesterDept,
+    country: row.country,
     destination: row.destination,
-    objective: row.objective as Objective,
-    impact: row.impact as Impact,
+    requestType: row.request_type as RequestType,
+    reasonForRequest: row.reason_for_request as ReasonForRequest,
+    description: row.description ?? "",
     deadline: row.deadline ?? "",
-    urgency: row.urgency as Urgency,
-    strategicPriority: row.strategicpriority,
-    domesticGrowth: row.domesticgrowth,
-    ownOffer: row.ownoffer,
-    conversionIssue: row.conversionissue,
-    partnerCommitment: row.partnercommitment,
-    aligned: row.aligned,
-    alreadyInPipeline: row.alreadyinpipeline,
-    contentRequired: row.contentrequired,
-    supplyRequired: row.supplyrequired,
-    notes: row.notes ?? "",
     status: row.status as Status,
-    score: row.score,
-    createdAt: row.createdat ?? "",
+    priorityScore: row.priority_score,
+    priorityTier: row.priority_tier as PriorityTier,
+    createdAt: row.created_at ?? "",
+    updatedAt: row.updated_at ?? "",
   };
 }
 
-export default function App() {
-  const [requests, setRequests] = useState<RequestItem[]>([]);
-  const [activeView, setActiveView] = useState<ActiveView>("dashboard");
-  const [selectedId, setSelectedId] = useState<string>("");
-  const [search, setSearch] = useState<string>("");
-  const [teamFilter, setTeamFilter] = useState<"All" | Team>("All");
-  const [statusFilter, setStatusFilter] = useState<"All" | Status>("All");
-  const [form, setForm] = useState<FormState>(EMPTY_FORM);
-  const [loading, setLoading] = useState<boolean>(true);
+function commentRowToItem(row: CommentRow): CommentItem {
+  return {
+    id: row.id,
+    requestId: row.request_id,
+    commentText: row.comment_text,
+    commentAuthor: row.comment_author,
+    commentAuthorRole: row.comment_author_role,
+    createdAt: row.created_at ?? "",
+  };
+}
 
-  const selected = requests.find((r) => r.id === selectedId) ?? requests[0] ?? null;
+function makeDestinationKey(country: string, destination: string): string {
+  return `${country.trim().toLowerCase()}__${destination.trim().toLowerCase()}`;
+}
+
+function isSupplyVisible(status: Status): boolean {
+  return status === "Approved" || status === "In Progress" || status === "Completed";
+}
+
+function isOpenSupplyTicket(status: Status): boolean {
+  return status === "Approved" || status === "In Progress";
+}
+
+export default function App() {
+  const [activeView, setActiveView] = useState<ActiveView>("submit");
+  const [requests, setRequests] = useState<RequestItem[]>([]);
+  const [comments, setComments] = useState<CommentItem[]>([]);
+  const [loadingRequests, setLoadingRequests] = useState<boolean>(true);
+  const [loadingComments, setLoadingComments] = useState<boolean>(false);
+
+  const [form, setForm] = useState<FormState>(EMPTY_FORM);
+
+  const [portfolioSearch, setPortfolioSearch] = useState<string>("");
+  const [supplySearch, setSupplySearch] = useState<string>("");
+
+  const [selectedDestinationKey, setSelectedDestinationKey] = useState<string>("");
+  const [selectedRequestId, setSelectedRequestId] = useState<string>("");
+
+  const [commentForm, setCommentForm] = useState(EMPTY_COMMENT);
 
   useEffect(() => {
     void fetchRequests();
   }, []);
 
+  useEffect(() => {
+    if (selectedRequestId) {
+      void fetchComments(selectedRequestId);
+    } else {
+      setComments([]);
+    }
+  }, [selectedRequestId]);
+
   async function fetchRequests(): Promise<void> {
-    setLoading(true);
+    setLoadingRequests(true);
 
     const { data, error } = await supabase
-      .from("requests")
+      .from("requests_v2")
       .select("*")
-      .order("createdat", { ascending: false });
+      .order("updated_at", { ascending: false });
 
     if (error) {
       console.error("Error fetching requests:", error);
-      setLoading(false);
+      setLoadingRequests(false);
       return;
     }
 
-    const mapped = ((data as SupabaseRequestRow[] | null) ?? []).map(mapRowToRequest);
+    const mapped = ((data as RequestRow[] | null) ?? []).map(requestRowToItem);
     setRequests(mapped);
 
-    if (mapped.length > 0 && !mapped.find((r) => r.id === selectedId)) {
-      setSelectedId(mapped[0].id);
-    }
-    if (mapped.length === 0) {
-      setSelectedId("");
-    }
-
-    setLoading(false);
+    setLoadingRequests(false);
   }
 
-  const filteredRequests = useMemo(() => {
-    return requests.filter((r) => {
-      const haystack = `${r.title} ${r.destination} ${r.team} ${r.type} ${r.objective}`.toLowerCase();
-      const matchesSearch = haystack.includes(search.toLowerCase());
-      const matchesTeam = teamFilter === "All" || r.team === teamFilter;
-      const matchesStatus = statusFilter === "All" || r.status === statusFilter;
-      return matchesSearch && matchesTeam && matchesStatus;
-    });
-  }, [requests, search, teamFilter, statusFilter]);
+  async function fetchComments(requestId: string): Promise<void> {
+    setLoadingComments(true);
 
-  const metrics = useMemo(() => {
-    const total = requests.length;
-    const approved = requests.filter((r) => r.status === "Approved").length;
-    const inProgress = requests.filter((r) => r.status === "In Progress").length;
-    const highPriority = requests.filter((r) => r.score >= 15).length;
-    const blocked = requests.filter((r) => r.status === "Blocked").length;
-    return { total, approved, inProgress, highPriority, blocked };
-  }, [requests]);
+    const { data, error } = await supabase
+      .from("request_comments_v2")
+      .select("*")
+      .eq("request_id", requestId)
+      .order("created_at", { ascending: false });
 
-  const laneMix = useMemo(() => {
-    const strategic = requests.filter((r) => laneForType(r.type) === "Strategic Growth").length;
-    const performance = requests.filter((r) => laneForType(r.type) === "Performance Optimisation").length;
-    const reactive = requests.filter((r) => laneForType(r.type) === "Reactive / External").length;
-    const total = strategic + performance + reactive || 1;
-
-    return {
-      strategic: Math.round((strategic / total) * 100),
-      performance: Math.round((performance / total) * 100),
-      reactive: Math.round((reactive / total) * 100),
-    };
-  }, [requests]);
-
-  const activity = useMemo(() => {
-    return [...requests]
-      .slice()
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-      .slice(0, 5)
-      .map((r) => `${r.team} submitted or updated "${r.title}"`);
-  }, [requests]);
-
-  const submitRequest = async (): Promise<void> => {
-    if (!form.title.trim() || !form.requester.trim() || !form.destination.trim()) {
-      window.alert("Please complete title, requester, and destination.");
+    if (error) {
+      console.error("Error fetching comments:", error);
+      setComments([]);
+      setLoadingComments(false);
       return;
     }
 
-    const nextNumber = 1000 + requests.length + 1;
+    const mapped = ((data as CommentRow[] | null) ?? []).map(commentRowToItem);
+    setComments(mapped);
+    setLoadingComments(false);
+  }
 
-    const newRequest: RequestItem = {
-      ...form,
-      id: `REQ-${nextNumber}`,
-      status: "Intake",
-      score: computeScore(form),
-      createdAt: new Date().toISOString().slice(0, 10),
-    };
+  const submittedRequests = useMemo(() => {
+    const filtered = requests.filter((r) => r.status === "Submitted");
+
+    if (!portfolioSearch.trim()) return filtered;
+
+    const needle = portfolioSearch.toLowerCase();
+    return filtered.filter((r) =>
+      `${r.requesterName} ${r.requesterDept} ${r.country} ${r.destination} ${r.requestType} ${r.reasonForRequest}`
+        .toLowerCase()
+        .includes(needle)
+    );
+  }, [requests, portfolioSearch]);
+
+  const destinationGroups = useMemo(() => {
+    const visible = requests.filter((r) => isSupplyVisible(r.status));
+
+    const grouped: Record<string, DestinationGroup> = {};
+
+    visible.forEach((request) => {
+      const key = makeDestinationKey(request.country, request.destination);
+
+      if (!grouped[key]) {
+        grouped[key] = {
+          key,
+          country: request.country,
+          destination: request.destination,
+          openTickets: 0,
+          approvedCount: 0,
+          inProgressCount: 0,
+          completedCount: 0,
+          totalVisibleRequests: 0,
+          internalScore: 0,
+          priorityTier: "Low",
+          latestDeadline: "",
+          lastUpdated: request.updatedAt || request.createdAt,
+        };
+      }
+
+      const group = grouped[key];
+      group.totalVisibleRequests += 1;
+
+      if (request.status === "Approved") group.approvedCount += 1;
+      if (request.status === "In Progress") group.inProgressCount += 1;
+      if (request.status === "Completed") group.completedCount += 1;
+
+      if (isOpenSupplyTicket(request.status)) {
+        group.openTickets += 1;
+        group.internalScore += request.priorityScore;
+
+        if (!group.latestDeadline || (request.deadline && request.deadline < group.latestDeadline)) {
+          group.latestDeadline = request.deadline;
+        }
+      }
+
+      const requestUpdated = request.updatedAt || request.createdAt;
+      if (requestUpdated > group.lastUpdated) {
+        group.lastUpdated = requestUpdated;
+      }
+    });
+
+    return Object.values(grouped)
+      .map((group) => ({
+        ...group,
+        priorityTier: tierFromScore(group.internalScore),
+      }))
+      .filter((group) => {
+        if (!supplySearch.trim()) return true;
+        const needle = supplySearch.toLowerCase();
+        return `${group.country} ${group.destination}`.toLowerCase().includes(needle);
+      })
+      .sort((a, b) => {
+        if (b.internalScore !== a.internalScore) return b.internalScore - a.internalScore;
+        return b.openTickets - a.openTickets;
+      });
+  }, [requests, supplySearch]);
+
+  const selectedDestination = destinationGroups.find((d) => d.key === selectedDestinationKey) ?? null;
+
+  const selectedDestinationRequests = useMemo(() => {
+    if (!selectedDestination) return [];
+
+    return requests
+      .filter(
+        (r) =>
+          makeDestinationKey(r.country, r.destination) === selectedDestination.key &&
+          isSupplyVisible(r.status)
+      )
+      .sort((a, b) => b.priorityScore - a.priorityScore);
+  }, [requests, selectedDestination]);
+
+  const selectedRequest =
+    selectedDestinationRequests.find((r) => r.id === selectedRequestId) ?? selectedDestinationRequests[0] ?? null;
+
+  useEffect(() => {
+    if (selectedDestinationRequests.length > 0) {
+      const exists = selectedDestinationRequests.some((r) => r.id === selectedRequestId);
+      if (!exists) {
+        setSelectedRequestId(selectedDestinationRequests[0].id);
+      }
+    } else {
+      setSelectedRequestId("");
+    }
+  }, [selectedDestinationRequests, selectedRequestId]);
+
+  async function submitRequest(): Promise<void> {
+    if (
+      !form.requesterName.trim() ||
+      !form.country.trim() ||
+      !form.destination.trim() ||
+      !form.deadline.trim()
+    ) {
+      window.alert("Please complete requester name, country, destination and deadline.");
+      return;
+    }
+
+    const priorityScore = computePriorityScore(form);
+    const priorityTier = tierFromScore(priorityScore);
+    const timestamp = new Date().toISOString();
+    const requestId = `REQ-${Date.now()}-${Math.floor(Math.random() * 900 + 100)}`;
 
     const payload = {
-      id: newRequest.id,
-      title: newRequest.title,
-      requester: newRequest.requester,
-      team: newRequest.team,
-      type: newRequest.type,
-      destination: newRequest.destination,
-      objective: newRequest.objective,
-      impact: newRequest.impact,
-      deadline: newRequest.deadline || null,
-      urgency: newRequest.urgency,
-      strategicpriority: newRequest.strategicPriority,
-      domesticgrowth: newRequest.domesticGrowth,
-      ownoffer: newRequest.ownOffer,
-      conversionissue: newRequest.conversionIssue,
-      partnercommitment: newRequest.partnerCommitment,
-      aligned: newRequest.aligned,
-      alreadyinpipeline: newRequest.alreadyInPipeline,
-      contentrequired: newRequest.contentRequired,
-      supplyrequired: newRequest.supplyRequired,
-      notes: newRequest.notes,
-      status: newRequest.status,
-      score: newRequest.score,
-      createdat: newRequest.createdAt,
+      id: requestId,
+      requester_name: form.requesterName,
+      requester_dept: form.requesterDept,
+      country: form.country.trim(),
+      destination: form.destination.trim(),
+      request_type: form.requestType,
+      reason_for_request: form.reasonForRequest,
+      description: form.description,
+      deadline: form.deadline,
+      status: "Submitted",
+      priority_score: priorityScore,
+      priority_tier: priorityTier,
+      created_at: timestamp,
+      updated_at: timestamp,
     };
 
-    const { error } = await supabase.from("requests").insert([payload]);
+    const { error } = await supabase.from("requests_v2").insert([payload]);
 
     if (error) {
-      console.error("Error inserting request:", error);
-      window.alert("Could not save request.");
+      console.error("Error submitting request:", error);
+      window.alert("Could not submit request.");
       return;
     }
 
-    await fetchRequests();
     setForm(EMPTY_FORM);
-    setSelectedId(newRequest.id);
-    setActiveView("triage");
-  };
+    await fetchRequests();
+    setActiveView("portfolio");
+  }
 
-  const updateStatus = async (id: string, nextStatus: Status): Promise<void> => {
-    const { error } = await supabase.from("requests").update({ status: nextStatus }).eq("id", id);
+  async function updateRequestStatus(requestId: string, nextStatus: Status): Promise<void> {
+    const { error } = await supabase
+      .from("requests_v2")
+      .update({
+        status: nextStatus,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", requestId);
 
     if (error) {
-      console.error("Error updating status:", error);
+      console.error("Error updating request status:", error);
       window.alert("Could not update status.");
       return;
     }
 
     await fetchRequests();
-  };
+  }
 
-  const moveToNextStatus = async (request: RequestItem): Promise<void> => {
-    const idx = STATUSES.indexOf(request.status);
-    if (idx < STATUSES.length - 1) {
-      await updateStatus(request.id, STATUSES[idx + 1]);
-    }
-  };
+  async function addComment(): Promise<void> {
+    if (!selectedRequest) return;
 
-  const moveToPreviousStatus = async (request: RequestItem): Promise<void> => {
-    const idx = STATUSES.indexOf(request.status);
-    if (idx > 0) {
-      await updateStatus(request.id, STATUSES[idx - 1]);
-    }
-  };
-
-  const approveRequest = async (id: string): Promise<void> => {
-    await updateStatus(id, "Approved");
-  };
-
-  const deferRequest = async (id: string): Promise<void> => {
-    await updateStatus(id, "Scored");
-  };
-
-  const rejectRequest = async (id: string): Promise<void> => {
-    const { error } = await supabase.from("requests").delete().eq("id", id);
-
-    if (error) {
-      console.error("Error deleting request:", error);
-      window.alert("Could not delete request. If you did not enable DELETE in Supabase policy, this is expected.");
+    if (!commentForm.commentAuthor.trim() || !commentForm.commentText.trim()) {
+      window.alert("Please complete comment author and comment text.");
       return;
     }
 
-    await fetchRequests();
-  };
+    const payload = {
+      request_id: selectedRequest.id,
+      comment_text: commentForm.commentText.trim(),
+      comment_author: commentForm.commentAuthor.trim(),
+      comment_author_role: commentForm.commentAuthorRole.trim(),
+    };
 
-  const navItems: ReadonlyArray<{ key: ActiveView; label: string }> = [
-    { key: "dashboard", label: "Dashboard" },
-    { key: "submit", label: "Submit Request" },
-    { key: "triage", label: "Triage Queue" },
-    { key: "board", label: "Pipeline Board" },
-    { key: "backlog", label: "Ranked Backlog" },
-  ];
+    const { error } = await supabase.from("request_comments_v2").insert([payload]);
+
+    if (error) {
+      console.error("Error adding comment:", error);
+      window.alert("Could not save comment.");
+      return;
+    }
+
+    setCommentForm(EMPTY_COMMENT);
+
+    await supabase
+      .from("requests_v2")
+      .update({ updated_at: new Date().toISOString() })
+      .eq("id", selectedRequest.id);
+
+    await fetchRequests();
+    await fetchComments(selectedRequest.id);
+  }
+
+  function supplyStatusOptions(request: RequestItem): Status[] {
+    if (request.status === "Approved") return ["Approved", "In Progress", "Completed"];
+    if (request.status === "In Progress") return ["Approved", "In Progress", "Completed"];
+    if (request.status === "Completed") return ["Approved", "In Progress", "Completed"];
+    return PORTFOLIO_STATUSES;
+  }
 
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <div>
-          <div className="brand">Supply Pipeline</div>
-          <p className="sidebar-subtitle">One intake. One scoring model. One backlog.</p>
+        <div className="brand-wrap">
+          <div className="brand-title">Supply Pipeline</div>
+          <div className="brand-subtitle">One front door. One approval layer. One supply view.</div>
         </div>
 
         <nav className="nav">
-          {navItems.map((item) => (
-            <button
-              key={item.key}
-              className={`nav-button ${activeView === item.key ? "active" : ""}`}
-              onClick={() => setActiveView(item.key)}
-            >
-              {item.label}
-            </button>
-          ))}
+          <button
+            className={`nav-button ${activeView === "submit" ? "active" : ""}`}
+            onClick={() => setActiveView("submit")}
+          >
+            Submit Request
+          </button>
+          <button
+            className={`nav-button ${activeView === "portfolio" ? "active" : ""}`}
+            onClick={() => setActiveView("portfolio")}
+          >
+            Portfolio Review
+          </button>
+          <button
+            className={`nav-button ${activeView === "supply" ? "active" : ""}`}
+            onClick={() => setActiveView("supply")}
+          >
+            Supply Dashboard
+          </button>
         </nav>
 
-        <div className="governance-card">
-          <strong>Governance rule</strong>
+        <div className="sidebar-card">
+          <div className="sidebar-card-title">Pilot logic</div>
           <p>
-            If a request is not logged and approved here, it should not drive supply or content prioritisation.
+            Supply sees destinations as the work view. Portfolio controls approval. Ticket count only reflects
+            open cases.
           </p>
         </div>
       </aside>
@@ -405,150 +557,56 @@ export default function App() {
       <main className="main">
         <header className="topbar">
           <div>
-            <h1>Supply Request Pipeline App</h1>
-            <p>Internal prioritisation layer for Supply and Content teams.</p>
-          </div>
-
-          <div className="topbar-controls">
-            <input
-              className="search"
-              placeholder="Search requests"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-
-            <select value={teamFilter} onChange={(e) => setTeamFilter(e.target.value as "All" | Team)}>
-              <option value="All">All teams</option>
-              <option value="Portfolio">Portfolio</option>
-              <option value="Marketing">Marketing</option>
-              <option value="Strategic Partnerships">Strategic Partnerships</option>
-            </select>
-
-            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as "All" | Status)}>
-              <option value="All">All statuses</option>
-              {STATUSES.map((status) => (
-                <option key={status} value={status}>
-                  {status}
-                </option>
-              ))}
-            </select>
+            <h1>Supply Request Pipeline</h1>
+            <p>TUI-style pilot for shared intake, portfolio approval, and destination-led supply prioritisation.</p>
           </div>
         </header>
 
-        {loading && (
-          <section className="content">
+        {loadingRequests && (
+          <section className="page-section">
             <div className="panel">
-              <h2>Loading requests...</h2>
-              <p>Fetching data from Supabase.</p>
+              <h2>Loading data</h2>
+              <p>Fetching requests from Supabase.</p>
             </div>
           </section>
         )}
 
-        {!loading && activeView === "dashboard" && (
-          <section className="content">
-            <div className="metric-grid">
-              <MetricCard label="Total requests" value={metrics.total} />
-              <MetricCard label="Approved" value={metrics.approved} />
-              <MetricCard label="In progress" value={metrics.inProgress} />
-              <MetricCard label="High priority" value={metrics.highPriority} />
-              <MetricCard label="Blocked" value={metrics.blocked} />
-            </div>
-
-            <div className="two-column">
-              <div className="panel">
-                <h2>Capacity mix</h2>
-                <ProgressRow label="Strategic growth" value={laneMix.strategic} />
-                <ProgressRow label="Performance optimisation" value={laneMix.performance} />
-                <ProgressRow label="Reactive / external" value={laneMix.reactive} />
+        {!loadingRequests && activeView === "submit" && (
+          <section className="page-section page-grid two-col">
+            <div className="panel">
+              <div className="section-title-row">
+                <h2>Submit Request</h2>
+                <span className="pill neutral">New intake</span>
               </div>
-
-              <div className="panel">
-                <h2>Recent activity</h2>
-                <ul className="activity-list">
-                  {activity.length > 0 ? activity.map((item, index) => <li key={index}>{item}</li>) : <li>No activity yet</li>}
-                </ul>
-              </div>
-            </div>
-
-            <div className="two-column">
-              <div className="panel">
-                <h2>Requests by team</h2>
-                {(["Portfolio", "Marketing", "Strategic Partnerships"] as Team[]).map((team) => {
-                  const count = requests.filter((r) => r.team === team).length;
-                  const percent = Math.round((count / (requests.length || 1)) * 100);
-
-                  return <ProgressRow key={team} label={team} value={percent} meta={`${count} requests`} />;
-                })}
-              </div>
-
-              <div className="panel">
-                <h2>Top priority items</h2>
-                <div className="request-list">
-                  {[...requests]
-                    .sort((a, b) => b.score - a.score)
-                    .slice(0, 5)
-                    .map((request) => (
-                      <button
-                        key={request.id}
-                        className="request-list-item"
-                        onClick={() => {
-                          setSelectedId(request.id);
-                          setActiveView("backlog");
-                        }}
-                      >
-                        <div>
-                          <strong>{request.title}</strong>
-                          <p>
-                            {request.destination} · {request.team}
-                          </p>
-                        </div>
-                        <span className="score-badge">{request.score}</span>
-                      </button>
-                    ))}
-                  {requests.length === 0 && <p>No requests yet.</p>}
-                </div>
-              </div>
-            </div>
-          </section>
-        )}
-
-        {!loading && activeView === "submit" && (
-          <section className="content two-column submit-layout">
-            <div className="panel form-panel">
-              <h2>Submit new request</h2>
 
               <div className="form-grid">
                 <label>
-                  Title
-                  <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
+                  Requester Name
+                  <input
+                    value={form.requesterName}
+                    onChange={(e) => setForm({ ...form, requesterName: e.target.value })}
+                  />
                 </label>
 
                 <label>
-                  Requester
-                  <input value={form.requester} onChange={(e) => setForm({ ...form, requester: e.target.value })} />
-                </label>
-
-                <label>
-                  Team
-                  <select value={form.team} onChange={(e) => setForm({ ...form, team: e.target.value as Team })}>
-                    <option value="Portfolio">Portfolio</option>
-                    <option value="Marketing">Marketing</option>
-                    <option value="Strategic Partnerships">Strategic Partnerships</option>
-                  </select>
-                </label>
-
-                <label>
-                  Request type
+                  Requester Dept
                   <select
-                    value={form.type}
-                    onChange={(e) => setForm({ ...form, type: e.target.value as RequestType })}
+                    value={form.requesterDept}
+                    onChange={(e) =>
+                      setForm({ ...form, requesterDept: e.target.value as RequesterDept })
+                    }
                   >
-                    <option value="Domestic Growth">Domestic Growth</option>
-                    <option value="Venue Optimisation">Venue Optimisation</option>
-                    <option value="Product Expansion">Product Expansion</option>
-                    <option value="New Destination">New Destination</option>
-                    <option value="Campaign Support">Campaign Support</option>
+                    {REQUESTER_DEPTS.map((dept) => (
+                      <option key={dept} value={dept}>
+                        {dept}
+                      </option>
+                    ))}
                   </select>
+                </label>
+
+                <label>
+                  Country
+                  <input value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value })} />
                 </label>
 
                 <label>
@@ -560,25 +618,42 @@ export default function App() {
                 </label>
 
                 <label>
-                  Objective
+                  Request Type
                   <select
-                    value={form.objective}
-                    onChange={(e) => setForm({ ...form, objective: e.target.value as Objective })}
+                    value={form.requestType}
+                    onChange={(e) => setForm({ ...form, requestType: e.target.value as RequestType })}
                   >
-                    <option value="Strategic Priority">Strategic Priority</option>
-                    <option value="Revenue">Revenue</option>
-                    <option value="Partner Commitment">Partner Commitment</option>
-                    <option value="Conversion">Conversion</option>
+                    {REQUEST_TYPES.map((type) => (
+                      <option key={type} value={type}>
+                        {type}
+                      </option>
+                    ))}
                   </select>
                 </label>
 
                 <label>
-                  Impact
-                  <select value={form.impact} onChange={(e) => setForm({ ...form, impact: e.target.value as Impact })}>
-                    <option value="High">High</option>
-                    <option value="Medium">Medium</option>
-                    <option value="Low">Low</option>
+                  Reason for Request
+                  <select
+                    value={form.reasonForRequest}
+                    onChange={(e) =>
+                      setForm({ ...form, reasonForRequest: e.target.value as ReasonForRequest })
+                    }
+                  >
+                    {REASONS.map((reason) => (
+                      <option key={reason} value={reason}>
+                        {reason}
+                      </option>
+                    ))}
                   </select>
+                </label>
+
+                <label className="full-width">
+                  Description
+                  <textarea
+                    rows={5}
+                    value={form.description}
+                    onChange={(e) => setForm({ ...form, description: e.target.value })}
+                  />
                 </label>
 
                 <label>
@@ -589,394 +664,399 @@ export default function App() {
                     onChange={(e) => setForm({ ...form, deadline: e.target.value })}
                   />
                 </label>
-
-                <label>
-                  Urgency
-                  <select
-                    value={form.urgency}
-                    onChange={(e) => setForm({ ...form, urgency: e.target.value as Urgency })}
-                  >
-                    <option value="Critical">Critical</option>
-                    <option value="Soon">Soon</option>
-                    <option value="Normal">Normal</option>
-                  </select>
-                </label>
               </div>
-
-              <div className="checkbox-grid">
-                <Checkbox
-                  label="Strategic priority"
-                  checked={form.strategicPriority}
-                  onChange={(checked) => setForm({ ...form, strategicPriority: checked })}
-                />
-                <Checkbox
-                  label="Domestic growth"
-                  checked={form.domesticGrowth}
-                  onChange={(checked) => setForm({ ...form, domesticGrowth: checked })}
-                />
-                <Checkbox
-                  label="Own offer"
-                  checked={form.ownOffer}
-                  onChange={(checked) => setForm({ ...form, ownOffer: checked })}
-                />
-                <Checkbox
-                  label="Conversion issue"
-                  checked={form.conversionIssue}
-                  onChange={(checked) => setForm({ ...form, conversionIssue: checked })}
-                />
-                <Checkbox
-                  label="Partner commitment"
-                  checked={form.partnerCommitment}
-                  onChange={(checked) => setForm({ ...form, partnerCommitment: checked })}
-                />
-                <Checkbox
-                  label="Aligned to model"
-                  checked={form.aligned}
-                  onChange={(checked) => setForm({ ...form, aligned: checked })}
-                />
-                <Checkbox
-                  label="Already in pipeline"
-                  checked={form.alreadyInPipeline}
-                  onChange={(checked) => setForm({ ...form, alreadyInPipeline: checked })}
-                />
-                <Checkbox
-                  label="Content required"
-                  checked={form.contentRequired}
-                  onChange={(checked) => setForm({ ...form, contentRequired: checked })}
-                />
-                <Checkbox
-                  label="Supply required"
-                  checked={form.supplyRequired}
-                  onChange={(checked) => setForm({ ...form, supplyRequired: checked })}
-                />
-              </div>
-
-              <label className="notes">
-                Notes
-                <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} rows={5} />
-              </label>
 
               <div className="button-row">
                 <button className="secondary-button" onClick={() => setForm(EMPTY_FORM)}>
                   Clear
                 </button>
                 <button className="primary-button" onClick={() => void submitRequest()}>
-                  Submit request
+                  Submit
                 </button>
               </div>
             </div>
 
-            <div className="panel sticky-panel">
-              <h2>Live scoring preview</h2>
-              <div className="score-preview">
-                <div className="big-score">{computeScore(form)}</div>
-                <p>
-                  {computeScore(form) >= 15
-                    ? "High priority candidate"
-                    : computeScore(form) >= 8
-                    ? "Medium priority candidate"
-                    : "Lower priority candidate"}
-                </p>
+            <div className="panel light-panel">
+              <div className="section-title-row">
+                <h2>Scoring Preview</h2>
+                <span className={`pill ${tierFromScore(computePriorityScore(form)).toLowerCase()}`}>
+                  {tierFromScore(computePriorityScore(form))}
+                </span>
               </div>
 
-              <ul className="score-breakdown">
-                <li>
-                  Strategic priority: {form.strategicPriority || form.objective === "Strategic Priority" ? "+10" : "0"}
-                </li>
-                <li>
-                  Revenue / partner / conversion:{" "}
-                  {form.objective === "Revenue" ||
-                  form.objective === "Partner Commitment" ||
-                  form.objective === "Conversion"
-                    ? "+5"
-                    : "0"}
-                </li>
-                <li>
-                  Impact: {form.impact === "High" ? "+5" : form.impact === "Medium" ? "+3" : "+1"}
-                </li>
-                <li>
-                  Urgency: {form.urgency === "Critical" ? "+3" : form.urgency === "Soon" ? "+2" : "0"}
-                </li>
-                <li>Penalties apply if request is not aligned or already duplicated</li>
-              </ul>
+              <div className="score-card">
+                <div className="score-number">{computePriorityScore(form)}</div>
+                <div className="score-label">Internal priority score</div>
+              </div>
+
+              <div className="info-list">
+                <div className="info-item">
+                  <strong>Reason</strong>
+                  <span>{reasonScore(form.reasonForRequest)}</span>
+                </div>
+                <div className="info-item">
+                  <strong>Request Type</strong>
+                  <span>{requestTypeScore(form.requestType)}</span>
+                </div>
+                <div className="info-item">
+                  <strong>Requester Dept</strong>
+                  <span>{requesterDeptScore(form.requesterDept)}</span>
+                </div>
+                <div className="info-item">
+                  <strong>Deadline Urgency</strong>
+                  <span>{deadlineScore(form.deadline)}</span>
+                </div>
+              </div>
             </div>
           </section>
         )}
 
-        {!loading && activeView === "triage" && (
-          <section className="content triage-layout">
-            <div className="panel triage-list">
-              <h2>Triage queue</h2>
-              <div className="request-list">
-                {filteredRequests.map((request) => (
-                  <button
-                    key={request.id}
-                    className={`request-list-item ${selectedId === request.id ? "selected" : ""}`}
-                    onClick={() => setSelectedId(request.id)}
-                  >
-                    <div>
-                      <strong>{request.title}</strong>
-                      <p>
-                        {request.destination} · {request.team}
-                      </p>
-                    </div>
-                    <span className="score-badge">{request.score}</span>
-                  </button>
-                ))}
-                {filteredRequests.length === 0 && <p>No requests found.</p>}
+        {!loadingRequests && activeView === "portfolio" && (
+          <section className="page-section">
+            <div className="panel">
+              <div className="section-title-row stacked-mobile">
+                <div>
+                  <h2>Portfolio Review</h2>
+                  <p className="muted">Approve or reject submitted requests before they enter the supply dashboard.</p>
+                </div>
+
+                <div className="toolbar">
+                  <input
+                    className="search-input"
+                    placeholder="Search submitted requests"
+                    value={portfolioSearch}
+                    onChange={(e) => setPortfolioSearch(e.target.value)}
+                  />
+                  <span className="pill neutral">{submittedRequests.length} submitted</span>
+                </div>
+              </div>
+
+              <div className="table-wrap">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Requester</th>
+                      <th>Dept</th>
+                      <th>Country</th>
+                      <th>Destination</th>
+                      <th>Type</th>
+                      <th>Reason</th>
+                      <th>Deadline</th>
+                      <th>Tier</th>
+                      <th>Score</th>
+                      <th>Status</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {submittedRequests.map((request) => (
+                      <tr key={request.id}>
+                        <td>{request.requesterName}</td>
+                        <td>{request.requesterDept}</td>
+                        <td>{request.country}</td>
+                        <td>{request.destination}</td>
+                        <td>{request.requestType}</td>
+                        <td>{request.reasonForRequest}</td>
+                        <td>{formatDate(request.deadline)}</td>
+                        <td>
+                          <span className={`pill ${request.priorityTier.toLowerCase()}`}>{request.priorityTier}</span>
+                        </td>
+                        <td>{request.priorityScore}</td>
+                        <td>{request.status}</td>
+                        <td>
+                          <div className="inline-actions">
+                            <button
+                              className="primary-button small-button"
+                              onClick={() => void updateRequestStatus(request.id, "Approved")}
+                            >
+                              Approve
+                            </button>
+                            <button
+                              className="danger-button small-button"
+                              onClick={() => void updateRequestStatus(request.id, "Rejected")}
+                            >
+                              Reject
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+
+                    {submittedRequests.length === 0 && (
+                      <tr>
+                        <td colSpan={11} className="empty-cell">
+                          No submitted requests waiting for review.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {!loadingRequests && activeView === "supply" && (
+          <section className="page-section page-grid supply-layout">
+            <div className="panel">
+              <div className="section-title-row stacked-mobile">
+                <div>
+                  <h2>Supply Dashboard</h2>
+                  <p className="muted">
+                    Destination-led view of approved work. Open ticket count falls as requests move to completed.
+                  </p>
+                </div>
+
+                <div className="toolbar">
+                  <input
+                    className="search-input"
+                    placeholder="Search destination or country"
+                    value={supplySearch}
+                    onChange={(e) => setSupplySearch(e.target.value)}
+                  />
+                  <span className="pill neutral">{destinationGroups.length} destinations</span>
+                </div>
+              </div>
+
+              <div className="table-wrap">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Country</th>
+                      <th>Destination</th>
+                      <th>Open Tickets</th>
+                      <th>Approved</th>
+                      <th>In Progress</th>
+                      <th>Completed</th>
+                      <th>Tier</th>
+                      <th>Internal Score</th>
+                      <th>Latest Deadline</th>
+                      <th>Last Updated</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {destinationGroups.map((group) => (
+                      <tr
+                        key={group.key}
+                        className={selectedDestinationKey === group.key ? "selected-row" : ""}
+                        onClick={() => setSelectedDestinationKey(group.key)}
+                      >
+                        <td>{group.country}</td>
+                        <td>{group.destination}</td>
+                        <td>{group.openTickets}</td>
+                        <td>{group.approvedCount}</td>
+                        <td>{group.inProgressCount}</td>
+                        <td>{group.completedCount}</td>
+                        <td>
+                          <span className={`pill ${group.priorityTier.toLowerCase()}`}>{group.priorityTier}</span>
+                        </td>
+                        <td>{group.internalScore}</td>
+                        <td>{formatDate(group.latestDeadline)}</td>
+                        <td>{formatDateTime(group.lastUpdated)}</td>
+                      </tr>
+                    ))}
+
+                    {destinationGroups.length === 0 && (
+                      <tr>
+                        <td colSpan={10} className="empty-cell">
+                          No approved supply destinations yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
               </div>
             </div>
 
             <div className="panel detail-panel">
-              {selected ? (
+              {!selectedDestination && (
+                <div className="empty-detail">
+                  <h3>Select a destination</h3>
+                  <p>Choose a destination from the supply dashboard to view underlying requests and comments.</p>
+                </div>
+              )}
+
+              {selectedDestination && (
                 <>
                   <div className="detail-header">
                     <div>
-                      <small>{selected.id}</small>
-                      <h2>{selected.title}</h2>
-                      <p>
-                        {selected.destination} · {selected.type} · {selected.team}
+                      <h2>
+                        {selectedDestination.destination}, {selectedDestination.country}
+                      </h2>
+                      <p className="muted">
+                        {selectedDestination.openTickets} open tickets · {selectedDestination.totalVisibleRequests} total supply-visible requests
                       </p>
                     </div>
-                    <span className={statusClass(selected.status)}>{selected.status}</span>
+
+                    <div className="detail-badges">
+                      <span className={`pill ${selectedDestination.priorityTier.toLowerCase()}`}>
+                        {selectedDestination.priorityTier}
+                      </span>
+                      <span className="pill neutral">Score {selectedDestination.internalScore}</span>
+                    </div>
                   </div>
 
-                  <div className="detail-grid">
-                    <DetailField label="Requester" value={selected.requester} />
-                    <DetailField label="Objective" value={selected.objective} />
-                    <DetailField label="Impact" value={selected.impact} />
-                    <DetailField label="Deadline" value={selected.deadline} />
-                    <DetailField label="Lane" value={laneForType(selected.type)} />
-                    <DetailField label="Score" value={String(selected.score)} />
-                  </div>
-
-                  <h3>Request details</h3>
-                  <p className="detail-notes">{selected.notes || "No notes added."}</p>
-
-                  <h3>Actions</h3>
-                  <div className="button-row wrap">
-                    <button className="primary-button" onClick={() => void approveRequest(selected.id)}>
-                      Approve
-                    </button>
-                    <button className="secondary-button" onClick={() => void deferRequest(selected.id)}>
-                      Defer
-                    </button>
-                    <button className="danger-button" onClick={() => void rejectRequest(selected.id)}>
-                      Reject
-                    </button>
-                    <button className="secondary-button" onClick={() => setActiveView("board")}>
-                      Open on board
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <p>No request selected.</p>
-              )}
-            </div>
-          </section>
-        )}
-
-        {!loading && activeView === "board" && (
-          <section className="content">
-            <div className="board">
-              {STATUSES.map((status) => (
-                <div key={status} className="board-column">
-                  <div className="board-column-header">
-                    <h3>{status}</h3>
-                    <span>{filteredRequests.filter((r) => r.status === status).length}</span>
-                  </div>
-
-                  <div className="board-cards">
-                    {filteredRequests
-                      .filter((request) => request.status === status)
-                      .map((request) => (
-                        <div key={request.id} className="board-card">
-                          <div className="board-card-top">
-                            <small>{request.id}</small>
-                            <span className="score-badge">{request.score}</span>
+                  <div className="request-card-list">
+                    {selectedDestinationRequests.map((request) => (
+                      <button
+                        key={request.id}
+                        className={`request-card ${selectedRequest?.id === request.id ? "active" : ""}`}
+                        onClick={() => setSelectedRequestId(request.id)}
+                      >
+                        <div className="request-card-top">
+                          <strong>{request.requestType}</strong>
+                          <span className={`pill ${request.priorityTier.toLowerCase()}`}>{request.priorityTier}</span>
+                        </div>
+                        <div className="request-card-body">
+                          <div>{request.reasonForRequest}</div>
+                          <div className="muted-small">
+                            {request.requesterDept} · {request.requesterName}
                           </div>
-                          <strong>{request.title}</strong>
-                          <p>{request.destination}</p>
-                          <div className="tag-row">
-                            <span className="tag">{request.team}</span>
-                            <span className="tag">{request.type}</span>
-                          </div>
-                          <div className="button-row wrap compact">
-                            <button
-                              className="secondary-button"
-                              onClick={() => void moveToPreviousStatus(request)}
-                              disabled={request.status === STATUSES[0]}
+                        </div>
+                        <div className="request-card-meta">
+                          <span>{request.status}</span>
+                          <span>Deadline {formatDate(request.deadline)}</span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+
+                  {selectedRequest && (
+                    <div className="request-detail-block">
+                      <div className="section-title-row">
+                        <h3>Request Detail</h3>
+                        <span className="pill neutral">{selectedRequest.id}</span>
+                      </div>
+
+                      <div className="detail-grid">
+                        <div className="detail-box">
+                          <span>Requester</span>
+                          <strong>{selectedRequest.requesterName}</strong>
+                        </div>
+                        <div className="detail-box">
+                          <span>Dept</span>
+                          <strong>{selectedRequest.requesterDept}</strong>
+                        </div>
+                        <div className="detail-box">
+                          <span>Type</span>
+                          <strong>{selectedRequest.requestType}</strong>
+                        </div>
+                        <div className="detail-box">
+                          <span>Reason</span>
+                          <strong>{selectedRequest.reasonForRequest}</strong>
+                        </div>
+                        <div className="detail-box">
+                          <span>Deadline</span>
+                          <strong>{formatDate(selectedRequest.deadline)}</strong>
+                        </div>
+                        <div className="detail-box">
+                          <span>Status</span>
+                          <strong>{selectedRequest.status}</strong>
+                        </div>
+                      </div>
+
+                      <div className="description-box">
+                        <span>Description</span>
+                        <p>{selectedRequest.description || "No description provided."}</p>
+                      </div>
+
+                      <div className="status-update-row">
+                        <label>
+                          Supply status
+                          <select
+                            value={selectedRequest.status}
+                            onChange={(e) =>
+                              void updateRequestStatus(selectedRequest.id, e.target.value as Status)
+                            }
+                          >
+                            {supplyStatusOptions(selectedRequest).map((status) => (
+                              <option key={status} value={status}>
+                                {status}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      </div>
+
+                      <div className="comments-block">
+                        <div className="section-title-row">
+                          <h3>Comments & Updates</h3>
+                          <span className="pill neutral">{comments.length} entries</span>
+                        </div>
+
+                        <div className="comment-form">
+                          <label>
+                            Author
+                            <input
+                              value={commentForm.commentAuthor}
+                              onChange={(e) =>
+                                setCommentForm({ ...commentForm, commentAuthor: e.target.value })
+                              }
+                            />
+                          </label>
+
+                          <label>
+                            Role
+                            <select
+                              value={commentForm.commentAuthorRole}
+                              onChange={(e) =>
+                                setCommentForm({ ...commentForm, commentAuthorRole: e.target.value })
+                              }
                             >
-                              Back
-                            </button>
-                            <button
-                              className="primary-button"
-                              onClick={() => void moveToNextStatus(request)}
-                              disabled={request.status === STATUSES[STATUSES.length - 1]}
-                            >
-                              Next
-                            </button>
-                            <button
-                              className="ghost-button"
-                              onClick={() => {
-                                setSelectedId(request.id);
-                                setActiveView("triage");
-                              }}
-                            >
-                              View
+                              <option value="Supply">Supply</option>
+                              <option value="Portfolio Management">Portfolio Management</option>
+                              <option value="Marketing">Marketing</option>
+                              <option value="Strategic Partnerships">Strategic Partnerships</option>
+                              <option value="TUI Source Market">TUI Source Market</option>
+                            </select>
+                          </label>
+
+                          <label className="full-width">
+                            Comment
+                            <textarea
+                              rows={4}
+                              value={commentForm.commentText}
+                              onChange={(e) =>
+                                setCommentForm({ ...commentForm, commentText: e.target.value })
+                              }
+                            />
+                          </label>
+
+                          <div className="button-row">
+                            <button className="primary-button" onClick={() => void addComment()}>
+                              Add Comment
                             </button>
                           </div>
                         </div>
-                      ))}
-                    {filteredRequests.length === 0 && <p>No requests found.</p>}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
-        )}
 
-        {!loading && activeView === "backlog" && (
-          <section className="content two-column">
-            <div className="panel">
-              <h2>Ranked backlog</h2>
-              <div className="table-wrapper">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Rank</th>
-                      <th>Request</th>
-                      <th>Team</th>
-                      <th>Destination</th>
-                      <th>Status</th>
-                      <th>Score</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {[...filteredRequests]
-                      .sort((a, b) => b.score - a.score)
-                      .map((request, index) => (
-                        <tr key={request.id} onClick={() => setSelectedId(request.id)}>
-                          <td>{index + 1}</td>
-                          <td>
-                            <strong>{request.title}</strong>
-                            <div className="sub-row">{request.type}</div>
-                          </td>
-                          <td>{request.team}</td>
-                          <td>{request.destination}</td>
-                          <td>
-                            <span className={statusClass(request.status)}>{request.status}</span>
-                          </td>
-                          <td>
-                            <span className="score-badge">{request.score}</span>
-                          </td>
-                        </tr>
-                      ))}
-                  </tbody>
-                </table>
-                {filteredRequests.length === 0 && <p>No requests found.</p>}
-              </div>
-            </div>
+                        <div className="comment-log">
+                          {loadingComments && <p className="muted">Loading comments...</p>}
 
-            <div className="panel sticky-panel">
-              {selected ? (
-                <>
-                  <h2>Request detail</h2>
-                  <div className="detail-header slim">
-                    <div>
-                      <small>{selected.id}</small>
-                      <h3>{selected.title}</h3>
+                          {!loadingComments && comments.length === 0 && (
+                            <p className="muted">No comments added yet.</p>
+                          )}
+
+                          {!loadingComments &&
+                            comments.map((comment) => (
+                              <div key={comment.id} className="comment-entry">
+                                <div className="comment-entry-top">
+                                  <strong>{comment.commentAuthor}</strong>
+                                  <span className="pill neutral small-pill">{comment.commentAuthorRole}</span>
+                                </div>
+                                <p>{comment.commentText}</p>
+                                <div className="comment-time">{formatDateTime(comment.createdAt)}</div>
+                              </div>
+                            ))}
+                        </div>
+                      </div>
                     </div>
-                    <span className="score-badge large">{selected.score}</span>
-                  </div>
-
-                  <div className="detail-grid">
-                    <DetailField label="Team" value={selected.team} />
-                    <DetailField label="Type" value={selected.type} />
-                    <DetailField label="Destination" value={selected.destination} />
-                    <DetailField label="Lane" value={laneForType(selected.type)} />
-                    <DetailField label="Objective" value={selected.objective} />
-                    <DetailField label="Status" value={selected.status} />
-                  </div>
-
-                  <p className="detail-notes">{selected.notes}</p>
-
-                  <div className="button-row wrap">
-                    <button className="primary-button" onClick={() => void approveRequest(selected.id)}>
-                      Approve
-                    </button>
-                    <button className="secondary-button" onClick={() => void updateStatus(selected.id, "In Progress")}>
-                      Start work
-                    </button>
-                    <button className="secondary-button" onClick={() => void updateStatus(selected.id, "Done")}>
-                      Mark done
-                    </button>
-                  </div>
+                  )}
                 </>
-              ) : (
-                <p>Select a request to see detail.</p>
               )}
             </div>
           </section>
         )}
       </main>
     </div>
-  );
-}
-
-function MetricCard({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="metric-card">
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
-  );
-}
-
-function ProgressRow({
-  label,
-  value,
-  meta,
-}: {
-  label: string;
-  value: number;
-  meta?: string;
-}) {
-  return (
-    <div className="progress-row">
-      <div className="progress-label-row">
-        <span>{label}</span>
-        <span>{meta ?? `${value}%`}</span>
-      </div>
-      <div className="progress-track">
-        <div className="progress-fill" style={{ width: `${Math.max(4, value)}%` }} />
-      </div>
-    </div>
-  );
-}
-
-function DetailField({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="detail-field">
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
-  );
-}
-
-function Checkbox({
-  label,
-  checked,
-  onChange,
-}: {
-  label: string;
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-}) {
-  return (
-    <label className="checkbox-item">
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
-      <span>{label}</span>
-    </label>
   );
 }
