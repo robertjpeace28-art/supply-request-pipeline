@@ -1,7 +1,16 @@
 import { useMemo, useState } from "react";
 
-type Status = "Intake" | "Under Review" | "Scored" | "Approved" | "In Progress" | "Blocked" | "Done";
+type Status =
+  | "Intake"
+  | "Under Review"
+  | "Scored"
+  | "Approved"
+  | "In Progress"
+  | "Blocked"
+  | "Done";
+
 type Team = "Portfolio" | "Marketing" | "Strategic Partnerships";
+
 type RequestType =
   | "Domestic Growth"
   | "Venue Optimisation"
@@ -9,9 +18,15 @@ type RequestType =
   | "New Destination"
   | "Campaign Support";
 
-type Objective = "Strategic Priority" | "Revenue" | "Partner Commitment" | "Conversion";
+type Objective =
+  | "Strategic Priority"
+  | "Revenue"
+  | "Partner Commitment"
+  | "Conversion";
 
 type Impact = "High" | "Medium" | "Low";
+type Urgency = "Critical" | "Soon" | "Normal";
+type ActiveView = "dashboard" | "submit" | "triage" | "board" | "backlog";
 
 type RequestItem = {
   id: string;
@@ -23,7 +38,7 @@ type RequestItem = {
   objective: Objective;
   impact: Impact;
   deadline: string;
-  urgency: "Critical" | "Soon" | "Normal";
+  urgency: Urgency;
   strategicPriority: boolean;
   domesticGrowth: boolean;
   ownOffer: boolean;
@@ -63,7 +78,7 @@ const INITIAL_REQUESTS: RequestItem[] = [
     notes: "Needs supply and content alignment so curation is not delayed.",
     status: "Approved",
     score: 25,
-    createdAt: "2026-04-01"
+    createdAt: "2026-04-01",
   },
   {
     id: "REQ-1002",
@@ -88,7 +103,7 @@ const INITIAL_REQUESTS: RequestItem[] = [
     notes: "Time-sensitive campaign support request.",
     status: "In Progress",
     score: 13,
-    createdAt: "2026-04-01"
+    createdAt: "2026-04-01",
   },
   {
     id: "REQ-1003",
@@ -113,7 +128,7 @@ const INITIAL_REQUESTS: RequestItem[] = [
     notes: "Requested by partner for launch readiness.",
     status: "Under Review",
     score: 8,
-    createdAt: "2026-04-01"
+    createdAt: "2026-04-01",
   },
   {
     id: "REQ-1004",
@@ -138,11 +153,19 @@ const INITIAL_REQUESTS: RequestItem[] = [
     notes: "Fits family demand gap and own-offer expansion priorities.",
     status: "Scored",
     score: 17,
-    createdAt: "2026-04-01"
-  }
+    createdAt: "2026-04-01",
+  },
 ];
 
-const STATUSES: Status[] = ["Intake", "Under Review", "Scored", "Approved", "In Progress", "Blocked", "Done"];
+const STATUSES: Status[] = [
+  "Intake",
+  "Under Review",
+  "Scored",
+  "Approved",
+  "In Progress",
+  "Blocked",
+  "Done",
+];
 
 type FormState = Omit<RequestItem, "id" | "status" | "score" | "createdAt">;
 
@@ -165,11 +188,12 @@ const EMPTY_FORM: FormState = {
   alreadyInPipeline: false,
   contentRequired: true,
   supplyRequired: true,
-  notes: ""
+  notes: "",
 };
 
-function computeScore(item: FormState) {
+function computeScore(item: FormState): number {
   let score = 0;
+
   if (item.strategicPriority || item.objective === "Strategic Priority") score += 10;
   if (item.objective === "Revenue") score += 5;
   if (item.objective === "Partner Commitment" || item.partnerCommitment) score += 5;
@@ -191,22 +215,30 @@ function computeScore(item: FormState) {
   return Math.max(score, 0);
 }
 
-function laneForType(type: RequestType) {
-  if (type === "Domestic Growth" || type === "Product Expansion") return "Strategic Growth";
-  if (type === "Venue Optimisation") return "Performance Optimisation";
+function laneForType(type: RequestType): string {
+  if (type === "Domestic Growth" || type === "Product Expansion") {
+    return "Strategic Growth";
+  }
+  if (type === "Venue Optimisation") {
+    return "Performance Optimisation";
+  }
   return "Reactive / External";
+}
+
+function statusClass(status: Status): string {
+  return "status-pill " + status.toLowerCase().replace(/ /g, "-");
 }
 
 export default function App() {
   const [requests, setRequests] = useState<RequestItem[]>(INITIAL_REQUESTS);
-  const [activeView, setActiveView] = useState<"dashboard" | "submit" | "triage" | "board" | "backlog">("dashboard");
-  const [selectedId, setSelectedId] = useState<string>(INITIAL_REQUESTS[0].id);
-  const [search, setSearch] = useState("");
+  const [activeView, setActiveView] = useState<ActiveView>("dashboard");
+  const [selectedId, setSelectedId] = useState<string>(INITIAL_REQUESTS[0]?.id ?? "");
+  const [search, setSearch] = useState<string>("");
   const [teamFilter, setTeamFilter] = useState<"All" | Team>("All");
   const [statusFilter, setStatusFilter] = useState<"All" | Status>("All");
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
 
-  const selected = requests.find((r) => r.id === selectedId) ?? requests[0];
+  const selected = requests.find((r) => r.id === selectedId) ?? requests[0] ?? null;
 
   const filteredRequests = useMemo(() => {
     return requests.filter((r) => {
@@ -232,10 +264,11 @@ export default function App() {
     const performance = requests.filter((r) => laneForType(r.type) === "Performance Optimisation").length;
     const reactive = requests.filter((r) => laneForType(r.type) === "Reactive / External").length;
     const total = strategic + performance + reactive || 1;
+
     return {
       strategic: Math.round((strategic / total) * 100),
       performance: Math.round((performance / total) * 100),
-      reactive: Math.round((reactive / total) * 100)
+      reactive: Math.round((reactive / total) * 100),
     };
   }, [requests]);
 
@@ -247,57 +280,64 @@ export default function App() {
       .map((r) => `${r.team} submitted or updated "${r.title}"`);
   }, [requests]);
 
-  const submitRequest = () => {
+  const submitRequest = (): void => {
     if (!form.title.trim() || !form.requester.trim() || !form.destination.trim()) {
-      alert("Please complete title, requester, and destination.");
+      window.alert("Please complete title, requester, and destination.");
       return;
     }
+
     const nextNumber = 1000 + requests.length + 1;
+
     const newRequest: RequestItem = {
       ...form,
       id: `REQ-${nextNumber}`,
       status: "Intake",
       score: computeScore(form),
-      createdAt: new Date().toISOString().slice(0, 10)
+      createdAt: new Date().toISOString().slice(0, 10),
     };
+
     setRequests((prev) => [newRequest, ...prev]);
     setSelectedId(newRequest.id);
     setForm(EMPTY_FORM);
     setActiveView("triage");
   };
 
-  const updateStatus = (id: string, nextStatus: Status) => {
+  const updateStatus = (id: string, nextStatus: Status): void => {
     setRequests((prev) => prev.map((r) => (r.id === id ? { ...r, status: nextStatus } : r)));
   };
 
-  const moveToNextStatus = (request: RequestItem) => {
+  const moveToNextStatus = (request: RequestItem): void => {
     const idx = STATUSES.indexOf(request.status);
     if (idx < STATUSES.length - 1) {
       updateStatus(request.id, STATUSES[idx + 1]);
     }
   };
 
-  const moveToPreviousStatus = (request: RequestItem) => {
+  const moveToPreviousStatus = (request: RequestItem): void => {
     const idx = STATUSES.indexOf(request.status);
     if (idx > 0) {
       updateStatus(request.id, STATUSES[idx - 1]);
     }
   };
 
-  const approveRequest = (id: string) => updateStatus(id, "Approved");
-  const deferRequest = (id: string) => updateStatus(id, "Scored");
-  const rejectRequest = (id: string) => {
-    setRequests((prev) => prev.filter((r) => r.id !== id));
-    setSelectedId(requests[0]?.id ?? "");
+  const approveRequest = (id: string): void => updateStatus(id, "Approved");
+  const deferRequest = (id: string): void => updateStatus(id, "Scored");
+
+  const rejectRequest = (id: string): void => {
+    setRequests((prev) => {
+      const next = prev.filter((r) => r.id !== id);
+      setSelectedId(next[0]?.id ?? "");
+      return next;
+    });
   };
 
-  const navItems = [
+  const navItems: ReadonlyArray<{ key: ActiveView; label: string }> = [
     { key: "dashboard", label: "Dashboard" },
     { key: "submit", label: "Submit Request" },
     { key: "triage", label: "Triage Queue" },
     { key: "board", label: "Pipeline Board" },
-    { key: "backlog", label: "Ranked Backlog" }
-  ] as const;
+    { key: "backlog", label: "Ranked Backlog" },
+  ];
 
   return (
     <div className="app-shell">
@@ -306,6 +346,7 @@ export default function App() {
           <div className="brand">Supply Pipeline</div>
           <p className="sidebar-subtitle">One intake. One scoring model. One backlog.</p>
         </div>
+
         <nav className="nav">
           {navItems.map((item) => (
             <button
@@ -317,9 +358,12 @@ export default function App() {
             </button>
           ))}
         </nav>
+
         <div className="governance-card">
           <strong>Governance rule</strong>
-          <p>If a request is not logged and approved here, it should not drive supply or content prioritisation.</p>
+          <p>
+            If a request is not logged and approved here, it should not drive supply or content prioritisation.
+          </p>
         </div>
       </aside>
 
@@ -329,6 +373,7 @@ export default function App() {
             <h1>Supply Request Pipeline App</h1>
             <p>Internal prioritisation layer for Supply and Content teams.</p>
           </div>
+
           <div className="topbar-controls">
             <input
               className="search"
@@ -336,16 +381,20 @@ export default function App() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
+
             <select value={teamFilter} onChange={(e) => setTeamFilter(e.target.value as "All" | Team)}>
               <option value="All">All teams</option>
               <option value="Portfolio">Portfolio</option>
               <option value="Marketing">Marketing</option>
               <option value="Strategic Partnerships">Strategic Partnerships</option>
             </select>
+
             <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as "All" | Status)}>
               <option value="All">All statuses</option>
               {STATUSES.map((status) => (
-                <option key={status} value={status}>{status}</option>
+                <option key={status} value={status}>
+                  {status}
+                </option>
               ))}
             </select>
           </div>
@@ -372,7 +421,9 @@ export default function App() {
               <div className="panel">
                 <h2>Recent activity</h2>
                 <ul className="activity-list">
-                  {activity.map((item, index) => <li key={index}>{item}</li>)}
+                  {activity.map((item, index) => (
+                    <li key={index}>{item}</li>
+                  ))}
                 </ul>
               </div>
             </div>
@@ -383,6 +434,7 @@ export default function App() {
                 {(["Portfolio", "Marketing", "Strategic Partnerships"] as Team[]).map((team) => {
                   const count = requests.filter((r) => r.team === team).length;
                   const percent = Math.round((count / (requests.length || 1)) * 100);
+
                   return <ProgressRow key={team} label={team} value={percent} meta={`${count} requests`} />;
                 })}
               </div>
@@ -394,10 +446,19 @@ export default function App() {
                     .sort((a, b) => b.score - a.score)
                     .slice(0, 5)
                     .map((request) => (
-                      <button key={request.id} className="request-list-item" onClick={() => { setSelectedId(request.id); setActiveView("backlog"); }}>
+                      <button
+                        key={request.id}
+                        className="request-list-item"
+                        onClick={() => {
+                          setSelectedId(request.id);
+                          setActiveView("backlog");
+                        }}
+                      >
                         <div>
                           <strong>{request.title}</strong>
-                          <p>{request.destination} · {request.team}</p>
+                          <p>
+                            {request.destination} · {request.team}
+                          </p>
                         </div>
                         <span className="score-badge">{request.score}</span>
                       </button>
@@ -412,15 +473,18 @@ export default function App() {
           <section className="content two-column submit-layout">
             <div className="panel form-panel">
               <h2>Submit new request</h2>
+
               <div className="form-grid">
                 <label>
                   Title
                   <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} />
                 </label>
+
                 <label>
                   Requester
                   <input value={form.requester} onChange={(e) => setForm({ ...form, requester: e.target.value })} />
                 </label>
+
                 <label>
                   Team
                   <select value={form.team} onChange={(e) => setForm({ ...form, team: e.target.value as Team })}>
@@ -429,9 +493,13 @@ export default function App() {
                     <option value="Strategic Partnerships">Strategic Partnerships</option>
                   </select>
                 </label>
+
                 <label>
                   Request type
-                  <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value as RequestType })}>
+                  <select
+                    value={form.type}
+                    onChange={(e) => setForm({ ...form, type: e.target.value as RequestType })}
+                  >
                     <option value="Domestic Growth">Domestic Growth</option>
                     <option value="Venue Optimisation">Venue Optimisation</option>
                     <option value="Product Expansion">Product Expansion</option>
@@ -439,19 +507,28 @@ export default function App() {
                     <option value="Campaign Support">Campaign Support</option>
                   </select>
                 </label>
+
                 <label>
                   Destination
-                  <input value={form.destination} onChange={(e) => setForm({ ...form, destination: e.target.value })} />
+                  <input
+                    value={form.destination}
+                    onChange={(e) => setForm({ ...form, destination: e.target.value })}
+                  />
                 </label>
+
                 <label>
                   Objective
-                  <select value={form.objective} onChange={(e) => setForm({ ...form, objective: e.target.value as Objective })}>
+                  <select
+                    value={form.objective}
+                    onChange={(e) => setForm({ ...form, objective: e.target.value as Objective })}
+                  >
                     <option value="Strategic Priority">Strategic Priority</option>
                     <option value="Revenue">Revenue</option>
                     <option value="Partner Commitment">Partner Commitment</option>
                     <option value="Conversion">Conversion</option>
                   </select>
                 </label>
+
                 <label>
                   Impact
                   <select value={form.impact} onChange={(e) => setForm({ ...form, impact: e.target.value as Impact })}>
@@ -460,13 +537,22 @@ export default function App() {
                     <option value="Low">Low</option>
                   </select>
                 </label>
+
                 <label>
                   Deadline
-                  <input type="date" value={form.deadline} onChange={(e) => setForm({ ...form, deadline: e.target.value })} />
+                  <input
+                    type="date"
+                    value={form.deadline}
+                    onChange={(e) => setForm({ ...form, deadline: e.target.value })}
+                  />
                 </label>
+
                 <label>
                   Urgency
-                  <select value={form.urgency} onChange={(e) => setForm({ ...form, urgency: e.target.value as FormState["urgency"] })}>
+                  <select
+                    value={form.urgency}
+                    onChange={(e) => setForm({ ...form, urgency: e.target.value as Urgency })}
+                  >
                     <option value="Critical">Critical</option>
                     <option value="Soon">Soon</option>
                     <option value="Normal">Normal</option>
@@ -475,15 +561,51 @@ export default function App() {
               </div>
 
               <div className="checkbox-grid">
-                <Checkbox label="Strategic priority" checked={form.strategicPriority} onChange={(checked) => setForm({ ...form, strategicPriority: checked })} />
-                <Checkbox label="Domestic growth" checked={form.domesticGrowth} onChange={(checked) => setForm({ ...form, domesticGrowth: checked })} />
-                <Checkbox label="Own offer" checked={form.ownOffer} onChange={(checked) => setForm({ ...form, ownOffer: checked })} />
-                <Checkbox label="Conversion issue" checked={form.conversionIssue} onChange={(checked) => setForm({ ...form, conversionIssue: checked })} />
-                <Checkbox label="Partner commitment" checked={form.partnerCommitment} onChange={(checked) => setForm({ ...form, partnerCommitment: checked })} />
-                <Checkbox label="Aligned to model" checked={form.aligned} onChange={(checked) => setForm({ ...form, aligned: checked })} />
-                <Checkbox label="Already in pipeline" checked={form.alreadyInPipeline} onChange={(checked) => setForm({ ...form, alreadyInPipeline: checked })} />
-                <Checkbox label="Content required" checked={form.contentRequired} onChange={(checked) => setForm({ ...form, contentRequired: checked })} />
-                <Checkbox label="Supply required" checked={form.supplyRequired} onChange={(checked) => setForm({ ...form, supplyRequired: checked })} />
+                <Checkbox
+                  label="Strategic priority"
+                  checked={form.strategicPriority}
+                  onChange={(checked) => setForm({ ...form, strategicPriority: checked })}
+                />
+                <Checkbox
+                  label="Domestic growth"
+                  checked={form.domesticGrowth}
+                  onChange={(checked) => setForm({ ...form, domesticGrowth: checked })}
+                />
+                <Checkbox
+                  label="Own offer"
+                  checked={form.ownOffer}
+                  onChange={(checked) => setForm({ ...form, ownOffer: checked })}
+                />
+                <Checkbox
+                  label="Conversion issue"
+                  checked={form.conversionIssue}
+                  onChange={(checked) => setForm({ ...form, conversionIssue: checked })}
+                />
+                <Checkbox
+                  label="Partner commitment"
+                  checked={form.partnerCommitment}
+                  onChange={(checked) => setForm({ ...form, partnerCommitment: checked })}
+                />
+                <Checkbox
+                  label="Aligned to model"
+                  checked={form.aligned}
+                  onChange={(checked) => setForm({ ...form, aligned: checked })}
+                />
+                <Checkbox
+                  label="Already in pipeline"
+                  checked={form.alreadyInPipeline}
+                  onChange={(checked) => setForm({ ...form, alreadyInPipeline: checked })}
+                />
+                <Checkbox
+                  label="Content required"
+                  checked={form.contentRequired}
+                  onChange={(checked) => setForm({ ...form, contentRequired: checked })}
+                />
+                <Checkbox
+                  label="Supply required"
+                  checked={form.supplyRequired}
+                  onChange={(checked) => setForm({ ...form, supplyRequired: checked })}
+                />
               </div>
 
               <label className="notes">
@@ -492,8 +614,12 @@ export default function App() {
               </label>
 
               <div className="button-row">
-                <button className="secondary-button" onClick={() => setForm(EMPTY_FORM)}>Clear</button>
-                <button className="primary-button" onClick={submitRequest}>Submit request</button>
+                <button className="secondary-button" onClick={() => setForm(EMPTY_FORM)}>
+                  Clear
+                </button>
+                <button className="primary-button" onClick={submitRequest}>
+                  Submit request
+                </button>
               </div>
             </div>
 
@@ -501,13 +627,33 @@ export default function App() {
               <h2>Live scoring preview</h2>
               <div className="score-preview">
                 <div className="big-score">{computeScore(form)}</div>
-                <p>{computeScore(form) >= 15 ? "High priority candidate" : computeScore(form) >= 8 ? "Medium priority candidate" : "Lower priority candidate"}</p>
+                <p>
+                  {computeScore(form) >= 15
+                    ? "High priority candidate"
+                    : computeScore(form) >= 8
+                    ? "Medium priority candidate"
+                    : "Lower priority candidate"}
+                </p>
               </div>
+
               <ul className="score-breakdown">
-                <li>Strategic priority: {form.strategicPriority || form.objective === "Strategic Priority" ? "+10" : "0"}</li>
-                <li>Revenue / partner / conversion: {form.objective === "Revenue" || form.objective === "Partner Commitment" || form.objective === "Conversion" ? "+5" : "0"}</li>
-                <li>Impact: {form.impact === "High" ? "+5" : form.impact === "Medium" ? "+3" : "+1"}</li>
-                <li>Urgency: {form.urgency === "Critical" ? "+3" : form.urgency === "Soon" ? "+2" : "0"}</li>
+                <li>
+                  Strategic priority: {form.strategicPriority || form.objective === "Strategic Priority" ? "+10" : "0"}
+                </li>
+                <li>
+                  Revenue / partner / conversion:{" "}
+                  {form.objective === "Revenue" ||
+                  form.objective === "Partner Commitment" ||
+                  form.objective === "Conversion"
+                    ? "+5"
+                    : "0"}
+                </li>
+                <li>
+                  Impact: {form.impact === "High" ? "+5" : form.impact === "Medium" ? "+3" : "+1"}
+                </li>
+                <li>
+                  Urgency: {form.urgency === "Critical" ? "+3" : form.urgency === "Soon" ? "+2" : "0"}
+                </li>
                 <li>Penalties apply if request is not aligned or already duplicated</li>
               </ul>
             </div>
@@ -527,7 +673,9 @@ export default function App() {
                   >
                     <div>
                       <strong>{request.title}</strong>
-                      <p>{request.destination} · {request.team}</p>
+                      <p>
+                        {request.destination} · {request.team}
+                      </p>
                     </div>
                     <span className="score-badge">{request.score}</span>
                   </button>
@@ -542,9 +690,11 @@ export default function App() {
                     <div>
                       <small>{selected.id}</small>
                       <h2>{selected.title}</h2>
-                      <p>{selected.destination} · {selected.type} · {selected.team}</p>
+                      <p>
+                        {selected.destination} · {selected.type} · {selected.team}
+                      </p>
                     </div>
-                    <span className={`status-pill ${selected.status.toLowerCase().replaceAll(" ", "-")}`}>{selected.status}</span>
+                    <span className={statusClass(selected.status)}>{selected.status}</span>
                   </div>
 
                   <div className="detail-grid">
@@ -561,10 +711,18 @@ export default function App() {
 
                   <h3>Actions</h3>
                   <div className="button-row wrap">
-                    <button className="primary-button" onClick={() => approveRequest(selected.id)}>Approve</button>
-                    <button className="secondary-button" onClick={() => deferRequest(selected.id)}>Defer</button>
-                    <button className="danger-button" onClick={() => rejectRequest(selected.id)}>Reject</button>
-                    <button className="secondary-button" onClick={() => setActiveView("board")}>Open on board</button>
+                    <button className="primary-button" onClick={() => approveRequest(selected.id)}>
+                      Approve
+                    </button>
+                    <button className="secondary-button" onClick={() => deferRequest(selected.id)}>
+                      Defer
+                    </button>
+                    <button className="danger-button" onClick={() => rejectRequest(selected.id)}>
+                      Reject
+                    </button>
+                    <button className="secondary-button" onClick={() => setActiveView("board")}>
+                      Open on board
+                    </button>
                   </div>
                 </>
               ) : (
@@ -585,31 +743,47 @@ export default function App() {
                   </div>
 
                   <div className="board-cards">
-                    {filteredRequests.filter((request) => request.status === status).map((request) => (
-                      <div key={request.id} className="board-card">
-                        <div className="board-card-top">
-                          <small>{request.id}</small>
-                          <span className="score-badge">{request.score}</span>
+                    {filteredRequests
+                      .filter((request) => request.status === status)
+                      .map((request) => (
+                        <div key={request.id} className="board-card">
+                          <div className="board-card-top">
+                            <small>{request.id}</small>
+                            <span className="score-badge">{request.score}</span>
+                          </div>
+                          <strong>{request.title}</strong>
+                          <p>{request.destination}</p>
+                          <div className="tag-row">
+                            <span className="tag">{request.team}</span>
+                            <span className="tag">{request.type}</span>
+                          </div>
+                          <div className="button-row wrap compact">
+                            <button
+                              className="secondary-button"
+                              onClick={() => moveToPreviousStatus(request)}
+                              disabled={request.status === STATUSES[0]}
+                            >
+                              Back
+                            </button>
+                            <button
+                              className="primary-button"
+                              onClick={() => moveToNextStatus(request)}
+                              disabled={request.status === STATUSES[STATUSES.length - 1]}
+                            >
+                              Next
+                            </button>
+                            <button
+                              className="ghost-button"
+                              onClick={() => {
+                                setSelectedId(request.id);
+                                setActiveView("triage");
+                              }}
+                            >
+                              View
+                            </button>
+                          </div>
                         </div>
-                        <strong>{request.title}</strong>
-                        <p>{request.destination}</p>
-                        <div className="tag-row">
-                          <span className="tag">{request.team}</span>
-                          <span className="tag">{request.type}</span>
-                        </div>
-                        <div className="button-row wrap compact">
-                          <button className="secondary-button" onClick={() => moveToPreviousStatus(request)} disabled={request.status === STATUSES[0]}>
-                            Back
-                          </button>
-                          <button className="primary-button" onClick={() => moveToNextStatus(request)} disabled={request.status === STATUSES[STATUSES.length - 1]}>
-                            Next
-                          </button>
-                          <button className="ghost-button" onClick={() => { setSelectedId(request.id); setActiveView("triage"); }}>
-                            View
-                          </button>
-                        </div>
-                      </div>
-                    ))}
+                      ))}
                   </div>
                 </div>
               ))}
@@ -634,19 +808,25 @@ export default function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {[...filteredRequests].sort((a, b) => b.score - a.score).map((request, index) => (
-                      <tr key={request.id} onClick={() => setSelectedId(request.id)}>
-                        <td>{index + 1}</td>
-                        <td>
-                          <strong>{request.title}</strong>
-                          <div className="sub-row">{request.type}</div>
-                        </td>
-                        <td>{request.team}</td>
-                        <td>{request.destination}</td>
-                        <td><span className={`status-pill ${request.status.toLowerCase().replaceAll(" ", "-")}`}>{request.status}</span></td>
-                        <td><span className="score-badge">{request.score}</span></td>
-                      </tr>
-                    ))}
+                    {[...filteredRequests]
+                      .sort((a, b) => b.score - a.score)
+                      .map((request, index) => (
+                        <tr key={request.id} onClick={() => setSelectedId(request.id)}>
+                          <td>{index + 1}</td>
+                          <td>
+                            <strong>{request.title}</strong>
+                            <div className="sub-row">{request.type}</div>
+                          </td>
+                          <td>{request.team}</td>
+                          <td>{request.destination}</td>
+                          <td>
+                            <span className={statusClass(request.status)}>{request.status}</span>
+                          </td>
+                          <td>
+                            <span className="score-badge">{request.score}</span>
+                          </td>
+                        </tr>
+                      ))}
                   </tbody>
                 </table>
               </div>
@@ -663,6 +843,7 @@ export default function App() {
                     </div>
                     <span className="score-badge large">{selected.score}</span>
                   </div>
+
                   <div className="detail-grid">
                     <DetailField label="Team" value={selected.team} />
                     <DetailField label="Type" value={selected.type} />
@@ -671,11 +852,19 @@ export default function App() {
                     <DetailField label="Objective" value={selected.objective} />
                     <DetailField label="Status" value={selected.status} />
                   </div>
+
                   <p className="detail-notes">{selected.notes}</p>
+
                   <div className="button-row wrap">
-                    <button className="primary-button" onClick={() => approveRequest(selected.id)}>Approve</button>
-                    <button className="secondary-button" onClick={() => updateStatus(selected.id, "In Progress")}>Start work</button>
-                    <button className="secondary-button" onClick={() => updateStatus(selected.id, "Done")}>Mark done</button>
+                    <button className="primary-button" onClick={() => approveRequest(selected.id)}>
+                      Approve
+                    </button>
+                    <button className="secondary-button" onClick={() => updateStatus(selected.id, "In Progress")}>
+                      Start work
+                    </button>
+                    <button className="secondary-button" onClick={() => updateStatus(selected.id, "Done")}>
+                      Mark done
+                    </button>
                   </div>
                 </>
               ) : (
@@ -698,7 +887,15 @@ function MetricCard({ label, value }: { label: string; value: number }) {
   );
 }
 
-function ProgressRow({ label, value, meta }: { label: string; value: number; meta?: string }) {
+function ProgressRow({
+  label,
+  value,
+  meta,
+}: {
+  label: string;
+  value: number;
+  meta?: string;
+}) {
   return (
     <div className="progress-row">
       <div className="progress-label-row">
@@ -724,7 +921,7 @@ function DetailField({ label, value }: { label: string; value: string }) {
 function Checkbox({
   label,
   checked,
-  onChange
+  onChange,
 }: {
   label: string;
   checked: boolean;
