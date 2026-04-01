@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { supabase } from "./supabaseClient";
 
 type Status =
   | "Intake"
@@ -54,108 +55,31 @@ type RequestItem = {
   createdAt: string;
 };
 
-const INITIAL_REQUESTS: RequestItem[] = [
-  {
-    id: "REQ-1001",
-    title: "Add Mallorca coastal venues for domestic growth",
-    requester: "Rob Peace",
-    team: "Portfolio",
-    type: "Domestic Growth",
-    destination: "Mallorca",
-    objective: "Strategic Priority",
-    impact: "High",
-    deadline: "2026-04-12",
-    urgency: "Soon",
-    strategicPriority: true,
-    domesticGrowth: true,
-    ownOffer: true,
-    conversionIssue: false,
-    partnerCommitment: false,
-    aligned: true,
-    alreadyInPipeline: false,
-    contentRequired: true,
-    supplyRequired: true,
-    notes: "Needs supply and content alignment so curation is not delayed.",
-    status: "Approved",
-    score: 25,
-    createdAt: "2026-04-01",
-  },
-  {
-    id: "REQ-1002",
-    title: "Optimise Colosseum venue page for spring campaign",
-    requester: "Campaign Manager",
-    team: "Marketing",
-    type: "Venue Optimisation",
-    destination: "Rome",
-    objective: "Conversion",
-    impact: "High",
-    deadline: "2026-04-05",
-    urgency: "Critical",
-    strategicPriority: false,
-    domesticGrowth: false,
-    ownOffer: false,
-    conversionIssue: true,
-    partnerCommitment: false,
-    aligned: true,
-    alreadyInPipeline: false,
-    contentRequired: true,
-    supplyRequired: false,
-    notes: "Time-sensitive campaign support request.",
-    status: "In Progress",
-    score: 13,
-    createdAt: "2026-04-01",
-  },
-  {
-    id: "REQ-1003",
-    title: "Partner request for Porto day trips",
-    requester: "Partnerships Team",
-    team: "Strategic Partnerships",
-    type: "New Destination",
-    destination: "Porto",
-    objective: "Partner Commitment",
-    impact: "Medium",
-    deadline: "2026-04-20",
-    urgency: "Normal",
-    strategicPriority: false,
-    domesticGrowth: false,
-    ownOffer: false,
-    conversionIssue: false,
-    partnerCommitment: true,
-    aligned: true,
-    alreadyInPipeline: false,
-    contentRequired: true,
-    supplyRequired: true,
-    notes: "Requested by partner for launch readiness.",
-    status: "Under Review",
-    score: 8,
-    createdAt: "2026-04-01",
-  },
-  {
-    id: "REQ-1004",
-    title: "Expand family attractions in Krakow",
-    requester: "Portfolio Team",
-    team: "Portfolio",
-    type: "Product Expansion",
-    destination: "Krakow",
-    objective: "Revenue",
-    impact: "Medium",
-    deadline: "2026-04-18",
-    urgency: "Soon",
-    strategicPriority: true,
-    domesticGrowth: false,
-    ownOffer: true,
-    conversionIssue: false,
-    partnerCommitment: false,
-    aligned: true,
-    alreadyInPipeline: false,
-    contentRequired: false,
-    supplyRequired: true,
-    notes: "Fits family demand gap and own-offer expansion priorities.",
-    status: "Scored",
-    score: 17,
-    createdAt: "2026-04-01",
-  },
-];
+type SupabaseRequestRow = {
+  id: string;
+  title: string;
+  requester: string;
+  team: string;
+  type: string;
+  destination: string;
+  objective: string;
+  impact: string;
+  deadline: string | null;
+  urgency: string;
+  strategicpriority: boolean;
+  domesticgrowth: boolean;
+  ownoffer: boolean;
+  conversionissue: boolean;
+  partnercommitment: boolean;
+  aligned: boolean;
+  alreadyinpipeline: boolean;
+  contentrequired: boolean;
+  supplyrequired: boolean;
+  notes: string | null;
+  status: string;
+  score: number;
+  createdat: string | null;
+};
 
 const STATUSES: Status[] = [
   "Intake",
@@ -229,16 +153,76 @@ function statusClass(status: Status): string {
   return "status-pill " + status.toLowerCase().replace(/ /g, "-");
 }
 
+function mapRowToRequest(row: SupabaseRequestRow): RequestItem {
+  return {
+    id: row.id,
+    title: row.title,
+    requester: row.requester,
+    team: row.team as Team,
+    type: row.type as RequestType,
+    destination: row.destination,
+    objective: row.objective as Objective,
+    impact: row.impact as Impact,
+    deadline: row.deadline ?? "",
+    urgency: row.urgency as Urgency,
+    strategicPriority: row.strategicpriority,
+    domesticGrowth: row.domesticgrowth,
+    ownOffer: row.ownoffer,
+    conversionIssue: row.conversionissue,
+    partnerCommitment: row.partnercommitment,
+    aligned: row.aligned,
+    alreadyInPipeline: row.alreadyinpipeline,
+    contentRequired: row.contentrequired,
+    supplyRequired: row.supplyrequired,
+    notes: row.notes ?? "",
+    status: row.status as Status,
+    score: row.score,
+    createdAt: row.createdat ?? "",
+  };
+}
+
 export default function App() {
-  const [requests, setRequests] = useState<RequestItem[]>(INITIAL_REQUESTS);
+  const [requests, setRequests] = useState<RequestItem[]>([]);
   const [activeView, setActiveView] = useState<ActiveView>("dashboard");
-  const [selectedId, setSelectedId] = useState<string>(INITIAL_REQUESTS[0]?.id ?? "");
+  const [selectedId, setSelectedId] = useState<string>("");
   const [search, setSearch] = useState<string>("");
   const [teamFilter, setTeamFilter] = useState<"All" | Team>("All");
   const [statusFilter, setStatusFilter] = useState<"All" | Status>("All");
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  const [loading, setLoading] = useState<boolean>(true);
 
   const selected = requests.find((r) => r.id === selectedId) ?? requests[0] ?? null;
+
+  useEffect(() => {
+    void fetchRequests();
+  }, []);
+
+  async function fetchRequests(): Promise<void> {
+    setLoading(true);
+
+    const { data, error } = await supabase
+      .from("requests")
+      .select("*")
+      .order("createdat", { ascending: false });
+
+    if (error) {
+      console.error("Error fetching requests:", error);
+      setLoading(false);
+      return;
+    }
+
+    const mapped = ((data as SupabaseRequestRow[] | null) ?? []).map(mapRowToRequest);
+    setRequests(mapped);
+
+    if (mapped.length > 0 && !mapped.find((r) => r.id === selectedId)) {
+      setSelectedId(mapped[0].id);
+    }
+    if (mapped.length === 0) {
+      setSelectedId("");
+    }
+
+    setLoading(false);
+  }
 
   const filteredRequests = useMemo(() => {
     return requests.filter((r) => {
@@ -280,7 +264,7 @@ export default function App() {
       .map((r) => `${r.team} submitted or updated "${r.title}"`);
   }, [requests]);
 
-  const submitRequest = (): void => {
+  const submitRequest = async (): Promise<void> => {
     if (!form.title.trim() || !form.requester.trim() || !form.destination.trim()) {
       window.alert("Please complete title, requester, and destination.");
       return;
@@ -296,39 +280,90 @@ export default function App() {
       createdAt: new Date().toISOString().slice(0, 10),
     };
 
-    setRequests((prev) => [newRequest, ...prev]);
-    setSelectedId(newRequest.id);
+    const payload = {
+      id: newRequest.id,
+      title: newRequest.title,
+      requester: newRequest.requester,
+      team: newRequest.team,
+      type: newRequest.type,
+      destination: newRequest.destination,
+      objective: newRequest.objective,
+      impact: newRequest.impact,
+      deadline: newRequest.deadline || null,
+      urgency: newRequest.urgency,
+      strategicpriority: newRequest.strategicPriority,
+      domesticgrowth: newRequest.domesticGrowth,
+      ownoffer: newRequest.ownOffer,
+      conversionissue: newRequest.conversionIssue,
+      partnercommitment: newRequest.partnerCommitment,
+      aligned: newRequest.aligned,
+      alreadyinpipeline: newRequest.alreadyInPipeline,
+      contentrequired: newRequest.contentRequired,
+      supplyrequired: newRequest.supplyRequired,
+      notes: newRequest.notes,
+      status: newRequest.status,
+      score: newRequest.score,
+      createdat: newRequest.createdAt,
+    };
+
+    const { error } = await supabase.from("requests").insert([payload]);
+
+    if (error) {
+      console.error("Error inserting request:", error);
+      window.alert("Could not save request.");
+      return;
+    }
+
+    await fetchRequests();
     setForm(EMPTY_FORM);
+    setSelectedId(newRequest.id);
     setActiveView("triage");
   };
 
-  const updateStatus = (id: string, nextStatus: Status): void => {
-    setRequests((prev) => prev.map((r) => (r.id === id ? { ...r, status: nextStatus } : r)));
+  const updateStatus = async (id: string, nextStatus: Status): Promise<void> => {
+    const { error } = await supabase.from("requests").update({ status: nextStatus }).eq("id", id);
+
+    if (error) {
+      console.error("Error updating status:", error);
+      window.alert("Could not update status.");
+      return;
+    }
+
+    await fetchRequests();
   };
 
-  const moveToNextStatus = (request: RequestItem): void => {
+  const moveToNextStatus = async (request: RequestItem): Promise<void> => {
     const idx = STATUSES.indexOf(request.status);
     if (idx < STATUSES.length - 1) {
-      updateStatus(request.id, STATUSES[idx + 1]);
+      await updateStatus(request.id, STATUSES[idx + 1]);
     }
   };
 
-  const moveToPreviousStatus = (request: RequestItem): void => {
+  const moveToPreviousStatus = async (request: RequestItem): Promise<void> => {
     const idx = STATUSES.indexOf(request.status);
     if (idx > 0) {
-      updateStatus(request.id, STATUSES[idx - 1]);
+      await updateStatus(request.id, STATUSES[idx - 1]);
     }
   };
 
-  const approveRequest = (id: string): void => updateStatus(id, "Approved");
-  const deferRequest = (id: string): void => updateStatus(id, "Scored");
+  const approveRequest = async (id: string): Promise<void> => {
+    await updateStatus(id, "Approved");
+  };
 
-  const rejectRequest = (id: string): void => {
-    setRequests((prev) => {
-      const next = prev.filter((r) => r.id !== id);
-      setSelectedId(next[0]?.id ?? "");
-      return next;
-    });
+  const deferRequest = async (id: string): Promise<void> => {
+    await updateStatus(id, "Scored");
+  };
+
+  const rejectRequest = async (id: string): Promise<void> => {
+    const { error } = await supabase.from("requests").delete().eq("id", id);
+
+    if (error) {
+      console.error("Error deleting request:", error);
+      window.alert("Could not delete request. If you did not enable DELETE in Supabase policy, this is expected.");
+      return;
+    }
+
+    await fetchRequests();
   };
 
   const navItems: ReadonlyArray<{ key: ActiveView; label: string }> = [
@@ -400,7 +435,16 @@ export default function App() {
           </div>
         </header>
 
-        {activeView === "dashboard" && (
+        {loading && (
+          <section className="content">
+            <div className="panel">
+              <h2>Loading requests...</h2>
+              <p>Fetching data from Supabase.</p>
+            </div>
+          </section>
+        )}
+
+        {!loading && activeView === "dashboard" && (
           <section className="content">
             <div className="metric-grid">
               <MetricCard label="Total requests" value={metrics.total} />
@@ -421,9 +465,7 @@ export default function App() {
               <div className="panel">
                 <h2>Recent activity</h2>
                 <ul className="activity-list">
-                  {activity.map((item, index) => (
-                    <li key={index}>{item}</li>
-                  ))}
+                  {activity.length > 0 ? activity.map((item, index) => <li key={index}>{item}</li>) : <li>No activity yet</li>}
                 </ul>
               </div>
             </div>
@@ -463,13 +505,14 @@ export default function App() {
                         <span className="score-badge">{request.score}</span>
                       </button>
                     ))}
+                  {requests.length === 0 && <p>No requests yet.</p>}
                 </div>
               </div>
             </div>
           </section>
         )}
 
-        {activeView === "submit" && (
+        {!loading && activeView === "submit" && (
           <section className="content two-column submit-layout">
             <div className="panel form-panel">
               <h2>Submit new request</h2>
@@ -617,7 +660,7 @@ export default function App() {
                 <button className="secondary-button" onClick={() => setForm(EMPTY_FORM)}>
                   Clear
                 </button>
-                <button className="primary-button" onClick={submitRequest}>
+                <button className="primary-button" onClick={() => void submitRequest()}>
                   Submit request
                 </button>
               </div>
@@ -660,7 +703,7 @@ export default function App() {
           </section>
         )}
 
-        {activeView === "triage" && (
+        {!loading && activeView === "triage" && (
           <section className="content triage-layout">
             <div className="panel triage-list">
               <h2>Triage queue</h2>
@@ -680,6 +723,7 @@ export default function App() {
                     <span className="score-badge">{request.score}</span>
                   </button>
                 ))}
+                {filteredRequests.length === 0 && <p>No requests found.</p>}
               </div>
             </div>
 
@@ -711,13 +755,13 @@ export default function App() {
 
                   <h3>Actions</h3>
                   <div className="button-row wrap">
-                    <button className="primary-button" onClick={() => approveRequest(selected.id)}>
+                    <button className="primary-button" onClick={() => void approveRequest(selected.id)}>
                       Approve
                     </button>
-                    <button className="secondary-button" onClick={() => deferRequest(selected.id)}>
+                    <button className="secondary-button" onClick={() => void deferRequest(selected.id)}>
                       Defer
                     </button>
-                    <button className="danger-button" onClick={() => rejectRequest(selected.id)}>
+                    <button className="danger-button" onClick={() => void rejectRequest(selected.id)}>
                       Reject
                     </button>
                     <button className="secondary-button" onClick={() => setActiveView("board")}>
@@ -732,7 +776,7 @@ export default function App() {
           </section>
         )}
 
-        {activeView === "board" && (
+        {!loading && activeView === "board" && (
           <section className="content">
             <div className="board">
               {STATUSES.map((status) => (
@@ -760,14 +804,14 @@ export default function App() {
                           <div className="button-row wrap compact">
                             <button
                               className="secondary-button"
-                              onClick={() => moveToPreviousStatus(request)}
+                              onClick={() => void moveToPreviousStatus(request)}
                               disabled={request.status === STATUSES[0]}
                             >
                               Back
                             </button>
                             <button
                               className="primary-button"
-                              onClick={() => moveToNextStatus(request)}
+                              onClick={() => void moveToNextStatus(request)}
                               disabled={request.status === STATUSES[STATUSES.length - 1]}
                             >
                               Next
@@ -784,6 +828,7 @@ export default function App() {
                           </div>
                         </div>
                       ))}
+                    {filteredRequests.length === 0 && <p>No requests found.</p>}
                   </div>
                 </div>
               ))}
@@ -791,7 +836,7 @@ export default function App() {
           </section>
         )}
 
-        {activeView === "backlog" && (
+        {!loading && activeView === "backlog" && (
           <section className="content two-column">
             <div className="panel">
               <h2>Ranked backlog</h2>
@@ -829,6 +874,7 @@ export default function App() {
                       ))}
                   </tbody>
                 </table>
+                {filteredRequests.length === 0 && <p>No requests found.</p>}
               </div>
             </div>
 
@@ -856,13 +902,13 @@ export default function App() {
                   <p className="detail-notes">{selected.notes}</p>
 
                   <div className="button-row wrap">
-                    <button className="primary-button" onClick={() => approveRequest(selected.id)}>
+                    <button className="primary-button" onClick={() => void approveRequest(selected.id)}>
                       Approve
                     </button>
-                    <button className="secondary-button" onClick={() => updateStatus(selected.id, "In Progress")}>
+                    <button className="secondary-button" onClick={() => void updateStatus(selected.id, "In Progress")}>
                       Start work
                     </button>
-                    <button className="secondary-button" onClick={() => updateStatus(selected.id, "Done")}>
+                    <button className="secondary-button" onClick={() => void updateStatus(selected.id, "Done")}>
                       Mark done
                     </button>
                   </div>
